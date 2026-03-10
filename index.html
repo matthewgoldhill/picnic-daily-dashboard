@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Picnic - Daily Spend & Margin</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #FBF9FA; }
+    .loading-overlay {
+      position: fixed; inset: 0; background: #FBF9FA; z-index: 999;
+      display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+    }
+    .loading-spinner {
+      width: 40px; height: 40px; border: 4px solid #eee; border-top: 4px solid #F8506F;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 14px; color: #ACABAC; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+    .error-banner {
+      background: #FFF0F2; border: 1px solid #F8506F; border-radius: 8px; padding: 12px 16px;
+      margin-bottom: 16px; font-size: 13px; color: #303030;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = Recharts;
+
+    const BRAND = {
+      blanketI: "#F8506F", blanketII: "#FF6C83", lightMist: "#FBF9FA",
+      darkAqua: "#00E2DC", midAqua: "#9EFFF9", lightAqua: "#E8FBFC",
+      stormy: "#ACABAC", nearBlack: "#303030", white: "#FFFFFF",
+    };
+
+    const fmt = (v) => `\u00A3${v.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const pct = (v) => `${(v * 100).toFixed(2)}%`;
+
+    // ---- Google Sheets gviz fetcher ----
+    async function fetchGviz(sheetId, gid, query) {
+      const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&gid=${gid}&tq=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      const text = await res.text();
+      // gviz returns "google.visualization.Query.setResponse({...})" - extract JSON
+      const json = JSON.parse(text.replace(/^[^(]*\(/, "").replace(/\);?\s*$/, ""));
+      return json.table;
+    }
+
+    function parseGvizDate(cell) {
+      if (!cell || !cell.v) return null;
+      // gviz dates come as "Date(yyyy,m,d)" where month is 0-indexed
+      const m = String(cell.v).match(/Date\((\d+),(\d+),(\d+)\)/);
+      if (m) return new Date(+m[1], +m[2], +m[3]);
+      // fallback: try parsing as string
+      return new Date(cell.v);
+    }
+
+    function formatDateDDMM(d) {
+      return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    // ---- Pipeline data (baked in - refreshed daily by scheduled task) ----
+    // Source: Monday.com board 1306145892 - March 2026 pipeline (90%+ stages only)
+    // Last updated: 2026-03-10T09:00:00
+    const PIPELINE_DATA = {
+      lastUpdated: "2026-03-10",
+      stages: [
+        { stage: "(100%) Signed IO", net: 218830.66, gp: 104206.58 },
+        { stage: "(90%) Pending IO", net: 19622.74, gp: 8627.06 },
+      ],
+    };
+
+    // ---- FX rate (baked in - refreshed daily) ----
+    const FX_RATE = 0.7480; // USD/GBP spot - updated 2026-03-10
+
+    function App() {
+      const [tab, setTab] = useState("overview");
+      const [loading, setLoading] = useState(true);
+      const [errors, setErrors] = useState([]);
+      const [dailyMS, setDailyMS] = useState([]);
+      const [dailyDL, setDailyDL] = useState([]);
+
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth(); // 0-indexed
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const today = now.getDate();
+      const yesterday = today - 1;
+      const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+      useEffect(() => {
+        async function loadData() {
+          const errs = [];
+
+          // Fetch Media Solutions daily revenue
+          try {
+            const msTable = await fetchGviz(
+              "166juFcOEt9t6OwGTW-y36bO2NarRgm-zqsO1FfAA28o",
+              "1489254940",
+              `SELECT A, SUM(V), SUM(W) WHERE A >= date '${monthStart}' GROUP BY A ORDER BY A`
+            );
+            const msData = msTable.rows.map(r => {
+              const d = parseGvizDate(r.c[0]);
+              return {
+                date: formatDateDDMM(d),
+                rev: r.c[1]?.v || 0,
+                margin: r.c[2]?.v || 0,
+              };
+            }).filter(d => d.date);
+            setDailyMS(msData);
+          } catch (e) {
+            errs.push("Media Solutions data failed to load: " + e.message);
+          }
+
+          // Fetch Data Licensing daily GP (USD)
+          try {
+            const dlTable = await fetchGviz(
+              "1iUPhY2beKheoGkFBmNMjDB303S-Vfnzr6op3VI9cX-s",
+              "259016618",
+              `SELECT A, B WHERE A >= date '${monthStart}' ORDER BY A`
+            );
+            const dlData = dlTable.rows.map(r => {
+              const d = parseGvizDate(r.c[0]);
+              const gpUSD = r.c[1]?.v || 0;
+              return {
+                date: formatDateDDMM(d),
+                gp: +(gpUSD * FX_RATE).toFixed(2),
+                gpUSD,
+              };
+            }).filter(d => d.date);
+            setDailyDL(dlData);
+          } catch (e) {
+            errs.push("Data Licensing data failed to load: " + e.message);
+          }
+
+          setErrors(errs);
+          setLoading(false);
+        }
+        loadData();
+      }, []);
+
+      if (loading) {
+        return (
+          <div className="loading-overlay">
+            <div className="loading-spinner" />
+            <div className="loading-text">Loading live data...</div>
+          </div>
+        );
+      }
+
+      // Computed values
+      const pipeline = PIPELINE_DATA.stages.reduce((s, d) => s + d.net, 0);
+      const pipelineGP = PIPELINE_DATA.stages.reduce((s, d) => s + d.gp, 0);
+      const delivered = dailyMS.reduce((s, d) => s + d.rev, 0);
+      const dlTotal = dailyDL.reduce((s, d) => s + d.gp, 0);
+      const dlAvg = dailyDL.length > 0 ? dlTotal / dailyDL.length : 0;
+      const dlMonthEstimate = dlAvg * daysInMonth;
+      const dlYesterday = dailyDL.length > 0 ? dailyDL[dailyDL.length - 1].gp : 0;
+      const targetDaily = pipeline / daysInMonth;
+      const remaining = pipeline - delivered;
+      const remainingDays = daysInMonth - today;
+      const calcTarget = remainingDays > 0 ? remaining / remainingDays : 0;
+      const pctTime = yesterday / daysInMonth;
+      const pctDelivered = pipeline > 0 ? delivered / pipeline : 0;
+      const msMarginTotal = dailyMS.reduce((s, d) => s + d.margin, 0);
+      const msRevTotal = dailyMS.reduce((s, d) => s + d.rev, 0);
+
+      const lastMSDay = dailyMS.length > 0 ? dailyMS[dailyMS.length - 1] : { date: "-", rev: 0, margin: 0 };
+      const lastDate = dailyMS.length > 0 ? dailyMS[dailyMS.length - 1].date : "-";
+
+      const combinedDaily = dailyMS.map((d, i) => ({
+        date: d.date,
+        "Media Solutions": d.rev,
+        "MS Margin": d.margin,
+        "Data Licensing": dailyDL[i]?.gp || 0,
+      }));
+
+      const cardStyle = {
+        backgroundColor: BRAND.white, borderRadius: 12, padding: 20, marginBottom: 16,
+        border: `1px solid ${BRAND.lightMist}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+      };
+      const accentCardStyle = (bg) => ({ ...cardStyle, backgroundColor: bg, border: "none" });
+
+      return (
+        <div style={{ backgroundColor: BRAND.lightMist, minHeight: "100vh", padding: 24, fontFamily: "Inter, system-ui, sans-serif" }}>
+          <div style={{ maxWidth: 900, margin: "0 auto" }}>
+
+            {/* Errors */}
+            {errors.map((e, i) => <div key={i} className="error-banner">\u26a0 {e}</div>)}
+
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+              <div>
+                <h1 style={{ fontSize: 24, fontWeight: 900, color: BRAND.nearBlack, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                  Daily Spend & Margin
+                </h1>
+                <p style={{ fontSize: 13, color: BRAND.stormy, marginTop: 4 }}>
+                  {monthNames[month]} {year} - as of {lastDate}/{year} &nbsp;
+                  <span style={{ fontSize: 11, color: BRAND.stormy }}>Pipeline updated: {PIPELINE_DATA.lastUpdated}</span>
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 4, backgroundColor: BRAND.white, borderRadius: 8, padding: 4, border: "1px solid #eee" }}>
+                {["overview", "charts"].map((t) => (
+                  <button key={t} onClick={() => setTab(t)} style={{
+                    padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none",
+                    cursor: "pointer", transition: "all 0.2s", textTransform: "uppercase", letterSpacing: "0.05em",
+                    backgroundColor: tab === t ? BRAND.blanketI : "transparent",
+                    color: tab === t ? BRAND.white : BRAND.stormy,
+                  }}>{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+                ))}
+              </div>
+            </div>
+
+            {tab === "overview" && (<>
+              {/* Media Solutions */}
+              <Section title="Media Solutions" color={BRAND.blanketI}>
+                <div style={cardStyle}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                    <KPI label="Yesterday's Revenue" value={fmt(lastMSDay.rev)} sub={lastDate} color={BRAND.blanketI} />
+                    <KPI label="Yesterday's Margin" value={fmt(lastMSDay.margin)} sub={`${((lastMSDay.margin / lastMSDay.rev) * 100).toFixed(1)}% margin`} color={BRAND.darkAqua} />
+                    <KPI label="Margin %" value={`${msRevTotal > 0 ? ((msMarginTotal / msRevTotal) * 100).toFixed(1) : 0}%`} sub="Month avg" />
+                  </div>
+                </div>
+
+                {/* Pipeline Pacing */}
+                <div style={accentCardStyle("#FFF0F2")}>
+                  <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Pipeline Pacing</h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                    <KPI label={`${monthNames[month]} Pipeline`} value={fmt(pipeline)} sub="Net formula (90%+100%)" />
+                    <KPI label="Target Daily Spend" value={fmt(targetDaily)} sub={`${fmt(pipeline)} / ${daysInMonth} days`} />
+                    <KPI label="Calc. Target (Remaining)" value={fmt(calcTarget)}
+                      sub={`${fmt(remaining)} / ${remainingDays} days left`}
+                      color={calcTarget > targetDaily ? BRAND.blanketI : BRAND.darkAqua} />
+                  </div>
+                </div>
+
+                {/* Monthly Delivery */}
+                <div style={cardStyle}>
+                  <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Monthly Delivery</h3>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
+                    <KPI label="Delivered Revenue" value={fmt(delivered)} color={BRAND.blanketI} />
+                    <KPI label="% Time Through Month" value={pct(pctTime)} sub={`Day ${yesterday} of ${daysInMonth}`} />
+                    <KPI label="% Delivered"
+                      value={<span><StatusDot value={pctDelivered} threshold={pctTime} />{pct(pctDelivered)}</span>}
+                      sub={pctDelivered > pctTime ? "Ahead of pace" : "Behind pace"}
+                      color={pctDelivered > pctTime ? BRAND.darkAqua : BRAND.blanketI} />
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ position: "relative", height: 24, backgroundColor: "#F0E8EA", borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ position: "absolute", height: "100%", borderRadius: 12, background: `linear-gradient(90deg, ${BRAND.blanketI}, ${BRAND.blanketII})`, width: pct(pctDelivered), transition: "width 0.5s" }} />
+                    <div style={{ position: "absolute", height: "100%", borderRight: `2px dashed ${BRAND.nearBlack}`, left: pct(pctTime) }} />
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: BRAND.white, mixBlendMode: "difference" }}>
+                      {pct(pctDelivered)} delivered vs {pct(pctTime)} time elapsed
+                    </div>
+                  </div>
+                </div>
+              </Section>
+
+              {/* Data Licensing */}
+              <Section title="Data Licensing (OpenX) - GBP" color={BRAND.darkAqua}>
+                <div style={accentCardStyle(BRAND.lightAqua)}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                    <KPI label="Yesterday's DL GP" value={fmt(dlYesterday)} sub={lastDate} color={BRAND.darkAqua} />
+                    <KPI label={`${monthNames[month]} DL Total`} value={fmt(dlTotal)} sub={`${dailyDL.length} days`} color={BRAND.darkAqua} />
+                    <KPI label="Avg Daily DL GP" value={fmt(dlAvg)} sub="Gross profit" />
+                  </div>
+                </div>
+              </Section>
+
+              {/* Combined */}
+              <Section title="Combined Revenue" color={BRAND.blanketII}>
+                <div style={cardStyle}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                    <KPI label={`${monthNames[month]} Est. Combined Margin`}
+                      value={fmt(pipelineGP + dlMonthEstimate)}
+                      sub={`Pipeline GP ${fmt(pipelineGP)} + DL est. ${fmt(dlMonthEstimate)}`}
+                      color={BRAND.blanketI} />
+                    <KPI label={`${monthNames[month]} Combined Delivered`}
+                      value={fmt(delivered + dlTotal)} sub="MS delivered + DL total" color={BRAND.blanketI} />
+                    <KPI label={`${monthNames[month]} Combined Margin`}
+                      value={fmt(msMarginTotal + dlTotal)} sub="MS margin + DL GP (MTD)" color={BRAND.darkAqua} />
+                  </div>
+                </div>
+              </Section>
+            </>)}
+
+            {tab === "charts" && (<>
+              {/* Daily Revenue Chart */}
+              <Section title={`Daily Revenue - ${monthNames[month]} ${year}`} color={BRAND.blanketI}>
+                <div style={cardStyle}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={combinedDaily} barGap={2}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E4E5" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: BRAND.nearBlack }} />
+                      <YAxis tick={{ fontSize: 11, fill: BRAND.stormy }} tickFormatter={(v) => `\u00A3${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v, name) => [fmt(v), name]} contentStyle={{ borderRadius: 8, border: "1px solid #eee" }} />
+                      <Legend />
+                      <Bar dataKey="Media Solutions" fill={BRAND.blanketI} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Data Licensing" fill={BRAND.darkAqua} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Section>
+
+              {/* Margin Chart */}
+              <Section title={`Daily Margin - ${monthNames[month]} ${year}`} color={BRAND.darkAqua}>
+                <div style={cardStyle}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={combinedDaily} barGap={2}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E4E5" />
+                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: BRAND.nearBlack }} />
+                      <YAxis tick={{ fontSize: 11, fill: BRAND.stormy }} tickFormatter={(v) => `\u00A3${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v, name) => [fmt(v), name]} contentStyle={{ borderRadius: 8, border: "1px solid #eee" }} />
+                      <Legend />
+                      <Bar dataKey="MS Margin" fill={BRAND.blanketII} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Data Licensing" fill={BRAND.darkAqua} radius={[4, 4, 0, 0]} name="DL GP" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Section>
+
+              {/* Daily breakdown table */}
+              <Section title="Daily Breakdown" color={BRAND.stormy}>
+                <div style={{ ...cardStyle, overflowX: "auto", padding: 16 }}>
+                  <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", fontSize: 11, textTransform: "uppercase", color: BRAND.stormy, letterSpacing: "0.05em" }}>
+                        <th style={{ paddingBottom: 8, paddingRight: 16, borderBottom: `2px solid ${BRAND.stormy}`, fontWeight: 700 }}>Date</th>
+                        <th style={{ paddingBottom: 8, paddingRight: 16, borderBottom: `2px solid ${BRAND.stormy}`, textAlign: "right", fontWeight: 700 }}>MS Revenue</th>
+                        <th style={{ paddingBottom: 8, paddingRight: 16, borderBottom: `2px solid ${BRAND.stormy}`, textAlign: "right", fontWeight: 700 }}>MS Margin</th>
+                        <th style={{ paddingBottom: 8, paddingRight: 16, borderBottom: `2px solid ${BRAND.stormy}`, textAlign: "right", fontWeight: 700 }}>Margin %</th>
+                        <th style={{ paddingBottom: 8, paddingRight: 16, borderBottom: `2px solid ${BRAND.stormy}`, textAlign: "right", fontWeight: 700 }}>DL GP</th>
+                        <th style={{ paddingBottom: 8, borderBottom: `2px solid ${BRAND.stormy}`, textAlign: "right", fontWeight: 700 }}>Combined</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyMS.map((d, i) => (
+                        <tr key={d.date} style={{ borderBottom: `1px solid ${BRAND.lightMist}` }}>
+                          <td style={{ padding: "8px 16px 8px 0", fontWeight: 600, color: BRAND.nearBlack }}>{d.date}</td>
+                          <td style={{ padding: "8px 16px 8px 0", textAlign: "right", color: BRAND.blanketI, fontWeight: 600 }}>{fmt(d.rev)}</td>
+                          <td style={{ padding: "8px 16px 8px 0", textAlign: "right", color: BRAND.darkAqua }}>{fmt(d.margin)}</td>
+                          <td style={{ padding: "8px 16px 8px 0", textAlign: "right", color: BRAND.stormy }}>{((d.margin / d.rev) * 100).toFixed(1)}%</td>
+                          <td style={{ padding: "8px 16px 8px 0", textAlign: "right", color: BRAND.darkAqua }}>{fmt(dailyDL[i]?.gp || 0)}</td>
+                          <td style={{ padding: "8px 0", textAlign: "right", fontWeight: 700, color: BRAND.nearBlack }}>{fmt(d.rev + (dailyDL[i]?.gp || 0))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ fontWeight: 800, color: BRAND.nearBlack, borderTop: `2px solid ${BRAND.nearBlack}` }}>
+                        <td style={{ paddingTop: 10, paddingRight: 16 }}>Total</td>
+                        <td style={{ paddingTop: 10, paddingRight: 16, textAlign: "right", color: BRAND.blanketI }}>{fmt(msRevTotal)}</td>
+                        <td style={{ paddingTop: 10, paddingRight: 16, textAlign: "right", color: BRAND.darkAqua }}>{fmt(msMarginTotal)}</td>
+                        <td style={{ paddingTop: 10, paddingRight: 16, textAlign: "right" }}>{msRevTotal > 0 ? ((msMarginTotal / msRevTotal) * 100).toFixed(1) : 0}%</td>
+                        <td style={{ paddingTop: 10, paddingRight: 16, textAlign: "right", color: BRAND.darkAqua }}>{fmt(dlTotal)}</td>
+                        <td style={{ paddingTop: 10, textAlign: "right" }}>{fmt(msRevTotal + dlTotal)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </Section>
+            </>)}
+
+            <div style={{ fontSize: 11, color: BRAND.stormy, textAlign: "center", marginTop: 24 }}>
+              MS & DL: live from Google Sheets | Pipeline: Monday.com (updated {PIPELINE_DATA.lastUpdated}) | FX: {FX_RATE} USD/GBP
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function KPI({ label, value, sub, color = BRAND.nearBlack }) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <span style={{ fontSize: 11, color: BRAND.stormy, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{label}</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color }}>{value}</span>
+          {sub && <span style={{ fontSize: 11, color: BRAND.stormy }}>{sub}</span>}
+        </div>
+      );
+    }
+
+    function Section({ title, color, children }) {
+      return (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ width: 10, height: 10, transform: "rotate(45deg)", backgroundColor: color }} />
+            <h2 style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: BRAND.nearBlack }}>{title}</h2>
+          </div>
+          {children}
+        </div>
+      );
+    }
+
+    function StatusDot({ value, threshold }) {
+      const color = value >= threshold ? BRAND.darkAqua : value >= threshold * 0.7 ? "#F59E0B" : BRAND.blanketI;
+      return <div style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", marginRight: 4, backgroundColor: color }} />;
+    }
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
+</body>
+</html>
