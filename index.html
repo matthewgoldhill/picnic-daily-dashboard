@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.12.7/Recharts.min.js"></script>
+  <!-- Charts rendered with pure CSS - no external charting library needed -->
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Inter', system-ui, sans-serif; background: #FBF9FA; }
@@ -33,7 +33,78 @@
 
   <script type="text/babel">
     const { useState, useEffect } = React;
-    const { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } = Recharts;
+    // Pure CSS bar chart component - no external dependency
+    function SimpleBarChart({ data, bars, height = 300 }) {
+      const [hoveredBar, setHoveredBar] = useState(null);
+      if (!data || data.length === 0) return null;
+      const allValues = data.flatMap(d => bars.map(b => d[b.dataKey] || 0));
+      const maxVal = Math.max(...allValues, 1);
+      const yTicks = [];
+      const step = Math.pow(10, Math.floor(Math.log10(maxVal))) || 1000;
+      const niceStep = maxVal / step < 3 ? step / 2 : step;
+      for (let v = 0; v <= maxVal * 1.1; v += niceStep) yTicks.push(v);
+      if (yTicks.length < 2) yTicks.push(niceStep);
+      const chartMax = yTicks[yTicks.length - 1] || maxVal * 1.1;
+
+      return React.createElement("div", { style: { width: "100%", height, position: "relative" } },
+        // Legend
+        React.createElement("div", { style: { display: "flex", gap: 16, justifyContent: "center", marginBottom: 12, fontSize: 12 } },
+          bars.map(b => React.createElement("div", { key: b.dataKey, style: { display: "flex", alignItems: "center", gap: 6 } },
+            React.createElement("div", { style: { width: 12, height: 12, borderRadius: 2, background: b.fill } }),
+            React.createElement("span", { style: { color: BRAND.nearBlack } }, b.name || b.dataKey)
+          ))
+        ),
+        // Chart area
+        React.createElement("div", { style: { display: "flex", height: height - 60, position: "relative" } },
+          // Y axis
+          React.createElement("div", { style: { width: 50, position: "relative", flexShrink: 0 } },
+            yTicks.map((v, i) => React.createElement("div", {
+              key: i,
+              style: { position: "absolute", bottom: `${(v / chartMax) * 100}%`, right: 4, fontSize: 11, color: BRAND.stormy, transform: "translateY(50%)" }
+            }, `\u00A3${(v / 1000).toFixed(0)}k`))
+          ),
+          // Bars area
+          React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "flex-end", gap: 1, borderLeft: "1px solid #E8E4E5", borderBottom: "1px solid #E8E4E5", position: "relative", paddingBottom: 24 } },
+            // Grid lines
+            yTicks.map((v, i) => React.createElement("div", {
+              key: `g${i}`,
+              style: { position: "absolute", bottom: `calc(${(v / chartMax) * 100}% + 24px)`, left: 0, right: 0, borderTop: "1px dashed #E8E4E5", pointerEvents: "none" }
+            })),
+            // Bar groups
+            data.map((d, i) => React.createElement("div", {
+              key: i,
+              style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", minWidth: 0 },
+              onMouseEnter: () => setHoveredBar(i),
+              onMouseLeave: () => setHoveredBar(null)
+            },
+              // Tooltip
+              hoveredBar === i && React.createElement("div", {
+                style: { position: "absolute", bottom: "100%", background: "white", border: "1px solid #eee", borderRadius: 8, padding: "8px 12px", fontSize: 12, zIndex: 10, whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }
+              },
+                React.createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, d.date),
+                bars.map(b => React.createElement("div", { key: b.dataKey, style: { display: "flex", alignItems: "center", gap: 6, marginTop: 2 } },
+                  React.createElement("div", { style: { width: 8, height: 8, borderRadius: 2, background: b.fill } }),
+                  React.createElement("span", null, `${b.name || b.dataKey}: ${fmt(d[b.dataKey] || 0)}`)
+                ))
+              ),
+              // Bars
+              React.createElement("div", { style: { display: "flex", gap: 2, width: "80%", justifyContent: "center", flex: 1, alignItems: "flex-end" } },
+                bars.map(b => {
+                  const val = d[b.dataKey] || 0;
+                  const pctH = Math.max((val / chartMax) * 100, 0.5);
+                  return React.createElement("div", {
+                    key: b.dataKey,
+                    style: { flex: 1, maxWidth: 24, height: `${pctH}%`, background: b.fill, borderRadius: "4px 4px 0 0", transition: "height 0.3s", minHeight: val > 0 ? 2 : 0 }
+                  });
+                })
+              ),
+              // X label
+              React.createElement("div", { style: { position: "absolute", bottom: 0, fontSize: data.length > 15 ? 9 : 11, color: BRAND.nearBlack, transform: "translateY(100%)", paddingTop: 4, whiteSpace: "nowrap" } }, d.date)
+            ))
+          )
+        )
+      );
+    }
 
     const BRAND = {
       blanketI: "#F8506F", blanketII: "#FF6C83", lightMist: "#FBF9FA",
@@ -41,7 +112,7 @@
       stormy: "#ACABAC", nearBlack: "#303030", white: "#FFFFFF",
     };
 
-    const fmt = (v) => `\u00A3${v.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmt = (v) => `£${v.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const pct = (v) => `${(v * 100).toFixed(2)}%`;
 
     // ---- Google Sheets gviz fetcher ----
@@ -195,7 +266,7 @@
           <div style={{ maxWidth: 900, margin: "0 auto" }}>
 
             {/* Errors */}
-            {errors.map((e, i) => <div key={i} className="error-banner">\u26a0 {e}</div>)}
+            {errors.map((e, i) => <div key={i} className="error-banner">⚠ {e}</div>)}
 
             {/* Header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
@@ -297,34 +368,20 @@
               {/* Daily Revenue Chart */}
               <Section title={`Daily Revenue - ${monthNames[month]} ${year}`} color={BRAND.blanketI}>
                 <div style={cardStyle}>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={combinedDaily} barGap={2}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E4E5" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: BRAND.nearBlack }} />
-                      <YAxis tick={{ fontSize: 11, fill: BRAND.stormy }} tickFormatter={(v) => `\u00A3${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(v, name) => [fmt(v), name]} contentStyle={{ borderRadius: 8, border: "1px solid #eee" }} />
-                      <Legend />
-                      <Bar dataKey="Media Solutions" fill={BRAND.blanketI} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Data Licensing" fill={BRAND.darkAqua} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <SimpleBarChart data={combinedDaily} height={300} bars={[
+                    { dataKey: "Media Solutions", fill: BRAND.blanketI },
+                    { dataKey: "Data Licensing", fill: BRAND.darkAqua }
+                  ]} />
                 </div>
               </Section>
 
               {/* Margin Chart */}
               <Section title={`Daily Margin - ${monthNames[month]} ${year}`} color={BRAND.darkAqua}>
                 <div style={cardStyle}>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={combinedDaily} barGap={2}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E8E4E5" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: BRAND.nearBlack }} />
-                      <YAxis tick={{ fontSize: 11, fill: BRAND.stormy }} tickFormatter={(v) => `\u00A3${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip formatter={(v, name) => [fmt(v), name]} contentStyle={{ borderRadius: 8, border: "1px solid #eee" }} />
-                      <Legend />
-                      <Bar dataKey="MS Margin" fill={BRAND.blanketII} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Data Licensing" fill={BRAND.darkAqua} radius={[4, 4, 0, 0]} name="DL GP" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <SimpleBarChart data={combinedDaily} height={300} bars={[
+                    { dataKey: "MS Margin", fill: BRAND.blanketII },
+                    { dataKey: "Data Licensing", fill: BRAND.darkAqua, name: "DL GP" }
+                  ]} />
                 </div>
               </Section>
 
