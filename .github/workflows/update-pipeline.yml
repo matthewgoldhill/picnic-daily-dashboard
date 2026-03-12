@@ -72,8 +72,8 @@ jobs:
             const allItems = [];
             let cursor = null;
 
-            // First page
-            const firstQuery = `{ boards(ids: 1306145892) { items_page(limit: 500) { cursor items { name column_values(ids: ${colIds}) { id text } } } } }`;
+            // First page - request both text and value (formula cols use value field)
+            const firstQuery = `{ boards(ids: 1306145892) { items_page(limit: 500) { cursor items { name column_values(ids: ${colIds}) { id text value } } } } }`;
             const first = await mondayQuery(firstQuery);
             const firstPage = first.data.boards[0].items_page;
             allItems.push(...firstPage.items);
@@ -82,7 +82,7 @@ jobs:
 
             // Subsequent pages
             while (cursor) {
-              const nextQuery = `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { name column_values(ids: ${colIds}) { id text } } } }`;
+              const nextQuery = `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { name column_values(ids: ${colIds}) { id text value } } } }`;
               const next = await mondayQuery(nextQuery);
               const page = next.data.next_items_page;
               allItems.push(...page.items);
@@ -93,21 +93,58 @@ jobs:
             return allItems;
           }
 
+          // Extract numeric value from a column - tries text first, then parses value JSON
+          function getNumericValue(col) {
+            if (!col) return 0;
+            // Try text field first
+            if (col.text && col.text !== '' && col.text !== '0') {
+              return parseFloat(col.text.replace(/[^0-9.\-]/g, '')) || 0;
+            }
+            // Fall back to value field (formula columns store result as JSON)
+            if (col.value) {
+              try {
+                const parsed = JSON.parse(col.value);
+                // Formula columns: {"value": 1234.56} or just a number
+                if (typeof parsed === 'number') return parsed;
+                if (parsed && typeof parsed.value === 'number') return parsed.value;
+                if (parsed && typeof parsed.value === 'string') return parseFloat(parsed.value) || 0;
+              } catch (e) {
+                return parseFloat(col.value.replace(/[^0-9.\-]/g, '')) || 0;
+              }
+            }
+            return 0;
+          }
+
           async function main() {
             const items = await fetchAllItems();
             console.error(`Total items fetched: ${items.length}`);
 
+            // Log first matching item for debugging
+            let logged = false;
+
             const stages = {};
             items.forEach(item => {
-              const dealStage = (item.column_values.find(c => c.id === 'deal_stage') || {}).text || '';
+              const dealStageCol = item.column_values.find(c => c.id === 'deal_stage') || {};
+              const dealStage = dealStageCol.text || '';
               if (!dealStage.includes('(90%)') && !dealStage.includes('(100%)')) return;
 
-              const netVal = (item.column_values.find(c => c.id === netCol) || {}).text || '0';
-              const gpVal = (item.column_values.find(c => c.id === gpCol) || {}).text || '0';
+              const netCol_ = item.column_values.find(c => c.id === netCol);
+              const gpCol_ = item.column_values.find(c => c.id === gpCol);
+
+              if (!logged) {
+                console.error('Sample matched item:', item.name);
+                console.error('  deal_stage:', JSON.stringify(dealStageCol));
+                console.error('  net col:', JSON.stringify(netCol_));
+                console.error('  gp col:', JSON.stringify(gpCol_));
+                logged = true;
+              }
+
+              const net = getNumericValue(netCol_);
+              const gp = getNumericValue(gpCol_);
 
               if (!stages[dealStage]) stages[dealStage] = { stage: dealStage, net: 0, gp: 0 };
-              stages[dealStage].net += parseFloat(netVal.replace(/[^0-9.\-]/g, '')) || 0;
-              stages[dealStage].gp += parseFloat(gpVal.replace(/[^0-9.\-]/g, '')) || 0;
+              stages[dealStage].net += net;
+              stages[dealStage].gp += gp;
             });
 
             const result = {
