@@ -323,8 +323,8 @@
                   <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Monthly Delivery</h3>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
                     <KPI label="Delivered Revenue" value={fmt(delivered)} color={BRAND.blanketI} />
-                    <KPI label="Predicted Month Rev" value={fmt(predictedCombinedRev)}
-                      sub={`MS ${fmt(predictedMSRev)} + DL ${fmt(dlMonthEstimate)}`}
+                    <KPI label="Predicted Month Rev" value={fmt(predictedMSRev)}
+                      sub={`Based on ${dailyMS.length}-day avg: ${fmt(msAvgDaily)}/day`}
                       color={BRAND.blanketII} />
                     <KPI label="% Time Through Month" value={pct(pctTime)} sub={`Day ${yesterday} of ${daysInMonth}`} />
                     <KPI label="% Delivered"
