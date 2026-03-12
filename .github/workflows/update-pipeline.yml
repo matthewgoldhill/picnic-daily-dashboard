@@ -176,9 +176,9 @@ jobs:
               const dealStage = getText(item, 'deal_stage');
               if (!dealStage.includes('(90%)') && !dealStage.includes('(100%)')) return;
 
-              // Filter by current year (dropdown3 = Year column)
+              // Filter by current year (dropdown3 = Year column, can be multi-select e.g. "2025, 2026")
               const itemYear = getText(item, 'dropdown3');
-              if (itemYear !== year) return;
+              if (!itemYear.includes(year)) return;
 
               const net = computeNet(item);
               const gp = computeGP(item, net);
