@@ -14,40 +14,121 @@ jobs:
     steps:
       - uses: actions/checkout@v4.2.2
 
-      - name: Fetch Monday.com pipeline
+      - name: Fetch and process Monday.com pipeline
         env:
           MONDAY_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
         run: |
-          RESPONSE=$(curl -s -X POST https://api.monday.com/v2 \
-            -H "Authorization: $MONDAY_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"query":"{ boards(ids: 1306145892) { items_page(limit: 500) { items { name group { title } column_values { id text value } } } } }"}')
+          cat > fetch_pipeline.js << 'SCRIPT'
+          const https = require('https');
 
-          echo "$RESPONSE" > pipeline_raw.json
+          // Month-to-column-ID mapping for Net Formula and Est GP
+          const MONTH_COLUMNS = {
+            1:  { net: 'formula52',  gp: 'formula_mksggav0' },
+            2:  { net: 'formula36',  gp: 'formula_mksgwwcr' },
+            3:  { net: 'formula077', gp: 'formula_mksgcz2t' },
+            4:  { net: 'formula6',   gp: 'formula_mksgen1v' },
+            5:  { net: 'formula83',  gp: 'formula_mksgs24d' },
+            6:  { net: 'formula96',  gp: 'formula_mksgyb4y' },
+            7:  { net: 'formula89',  gp: 'formula_mksg2sqq' },
+            8:  { net: 'formula81',  gp: 'formula_mksg7nxw' },
+            9:  { net: 'formula95',  gp: 'formula_mksgm5vc' },
+            10: { net: 'formula76',  gp: 'formula_mksgz4q4' },
+            11: { net: 'formula30',  gp: 'formula_mksg50t7' },
+            12: { net: 'formula78',  gp: 'formula_mksgr3ew' },
+          };
 
-          # Extract pipeline stages using node
-          node -e "
-          const data = require('./pipeline_raw.json');
-          const items = data.data.boards[0].items_page.items;
-          const stages = {};
-          items.forEach(item => {
-            const group = item.group.title;
-            if (!group.match(/\(100%\)|\(90%\)/)) return;
-            const net = item.column_values.find(c => c.id === 'numbers')?.text || '0';
-            const gp = item.column_values.find(c => c.id === 'numbers_1')?.text || '0';
-            if (!stages[group]) stages[group] = { stage: group, net: 0, gp: 0 };
-            stages[group].net += parseFloat(net.replace(/[^0-9.-]/g,'')) || 0;
-            stages[group].gp += parseFloat(gp.replace(/[^0-9.-]/g,'')) || 0;
-          });
-          const result = Object.values(stages);
-          const today = new Date().toISOString().split('T')[0];
-          console.log(JSON.stringify({ lastUpdated: today, stages: result }));
-          " > pipeline_data.json
+          const month = new Date().getMonth() + 1;
+          const { net: netCol, gp: gpCol } = MONTH_COLUMNS[month];
+          console.error(`Month: ${month}, Net col: ${netCol}, GP col: ${gpCol}`);
+
+          function mondayQuery(query) {
+            return new Promise((resolve, reject) => {
+              const body = JSON.stringify({ query });
+              const req = https.request({
+                hostname: 'api.monday.com',
+                path: '/v2',
+                method: 'POST',
+                headers: {
+                  'Authorization': process.env.MONDAY_TOKEN,
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(body),
+                },
+              }, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => {
+                  try { resolve(JSON.parse(data)); }
+                  catch (e) { reject(new Error('Bad JSON: ' + data.slice(0, 200))); }
+                });
+              });
+              req.on('error', reject);
+              req.write(body);
+              req.end();
+            });
+          }
+
+          async function fetchAllItems() {
+            const colIds = `["deal_stage", "${netCol}", "${gpCol}"]`;
+            const allItems = [];
+            let cursor = null;
+
+            // First page
+            const firstQuery = `{ boards(ids: 1306145892) { items_page(limit: 500) { cursor items { name column_values(ids: ${colIds}) { id text } } } } }`;
+            const first = await mondayQuery(firstQuery);
+            const firstPage = first.data.boards[0].items_page;
+            allItems.push(...firstPage.items);
+            cursor = firstPage.cursor;
+            console.error(`Page 1: ${firstPage.items.length} items`);
+
+            // Subsequent pages
+            while (cursor) {
+              const nextQuery = `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { name column_values(ids: ${colIds}) { id text } } } }`;
+              const next = await mondayQuery(nextQuery);
+              const page = next.data.next_items_page;
+              allItems.push(...page.items);
+              cursor = page.cursor;
+              console.error(`Next page: ${page.items.length} items, total: ${allItems.length}`);
+            }
+
+            return allItems;
+          }
+
+          async function main() {
+            const items = await fetchAllItems();
+            console.error(`Total items fetched: ${items.length}`);
+
+            const stages = {};
+            items.forEach(item => {
+              const dealStage = (item.column_values.find(c => c.id === 'deal_stage') || {}).text || '';
+              if (!dealStage.includes('(90%)') && !dealStage.includes('(100%)')) return;
+
+              const netVal = (item.column_values.find(c => c.id === netCol) || {}).text || '0';
+              const gpVal = (item.column_values.find(c => c.id === gpCol) || {}).text || '0';
+
+              if (!stages[dealStage]) stages[dealStage] = { stage: dealStage, net: 0, gp: 0 };
+              stages[dealStage].net += parseFloat(netVal.replace(/[^0-9.\-]/g, '')) || 0;
+              stages[dealStage].gp += parseFloat(gpVal.replace(/[^0-9.\-]/g, '')) || 0;
+            });
+
+            const result = {
+              lastUpdated: new Date().toISOString().split('T')[0],
+              stages: Object.values(stages),
+            };
+
+            console.error('Result:', JSON.stringify(result, null, 2));
+            // stdout is captured as the output
+            console.log(JSON.stringify(result));
+          }
+
+          main().catch(e => { console.error(e); process.exit(1); });
+          SCRIPT
+
+          node fetch_pipeline.js > pipeline_data.json
+          echo "Pipeline data:"
+          cat pipeline_data.json
 
       - name: Update index.html
         run: |
-          PIPELINE=$(cat pipeline_data.json)
-          # Use node to safely replace the PIPELINE_DATA constant
           node -e "
           const fs = require('fs');
           const pipeline = JSON.parse(fs.readFileSync('pipeline_data.json','utf8'));
