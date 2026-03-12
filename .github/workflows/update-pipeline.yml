@@ -215,17 +215,33 @@ jobs:
           echo "Pipeline data:"
           cat pipeline_data.json
 
+      - name: Fetch FX rate
+        run: |
+          curl -sf https://api.frankfurter.app/latest?from=USD\&to=GBP -o fx_rate.json
+          echo "FX data:"
+          cat fx_rate.json
+
       - name: Update index.html
         run: |
           node -e "
           const fs = require('fs');
           const pipeline = JSON.parse(fs.readFileSync('pipeline_data.json','utf8'));
+          const fx = JSON.parse(fs.readFileSync('fx_rate.json','utf8'));
           let html = fs.readFileSync('index.html','utf8');
+
+          // Update pipeline data
           const stagesStr = pipeline.stages.map(s =>
             '        { stage: \"' + s.stage + '\", net: ' + s.net.toFixed(2) + ', gp: ' + s.gp.toFixed(2) + ' },'
           ).join('\n');
           const replacement = 'const PIPELINE_DATA = {\n      lastUpdated: \"' + pipeline.lastUpdated + '\",\n      stages: [\n' + stagesStr + '\n      ],\n    };';
           html = html.replace(/const PIPELINE_DATA = \{[\s\S]*?\};/, replacement);
+
+          // Update FX rate
+          const rate = fx.rates.GBP.toFixed(4);
+          const fxDate = fx.date;
+          html = html.replace(/const FX_RATE = .*?;.*/, 'const FX_RATE = ' + rate + '; // USD/GBP spot - updated ' + fxDate);
+          console.log('FX rate: ' + rate + ' (as of ' + fxDate + ')');
+
           fs.writeFileSync('index.html', html);
           "
 
@@ -234,4 +250,4 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git diff --cached --quiet || (git commit -m "chore: update pipeline data $(date +%Y-%m-%d)" && git push)
+          git diff --cached --quiet || (git commit -m "chore: update pipeline & FX data $(date +%Y-%m-%d)" && git push)
