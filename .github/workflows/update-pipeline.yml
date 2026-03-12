@@ -48,12 +48,15 @@ jobs:
             'numbers4',          // number: NET Discount %
             'color_mksg773',     // status: Trading Deal True/False
             'numeric_mksge54p',  // number: Trading Deal %
+            'dropdown3',         // dropdown: Year (2023/2024/2025/2026)
           ];
 
-          const month = new Date().getMonth() + 1;
+          const now = new Date();
+          const month = now.getMonth() + 1;
+          const year = now.getFullYear().toString();
           const grossCol = MONTH_GROSS[month];
           const allCols = [...SHARED_COLS, grossCol];
-          console.error(`Month: ${month}, Gross col: ${grossCol}`);
+          console.error(`Month: ${month}, Year: ${year}, Gross col: ${grossCol}`);
 
           function mondayQuery(query) {
             return new Promise((resolve, reject) => {
@@ -172,6 +175,10 @@ jobs:
             items.forEach(item => {
               const dealStage = getText(item, 'deal_stage');
               if (!dealStage.includes('(90%)') && !dealStage.includes('(100%)')) return;
+
+              // Filter by current year (dropdown3 = Year column)
+              const itemYear = getText(item, 'dropdown3');
+              if (itemYear !== year) return;
 
               const net = computeNet(item);
               const gp = computeGP(item, net);
