@@ -21,25 +21,39 @@ jobs:
           cat > fetch_pipeline.js << 'SCRIPT'
           const https = require('https');
 
-          // Month-to-column-ID mapping for Net Formula and Est GP
-          const MONTH_COLUMNS = {
-            1:  { net: 'formula52',  gp: 'formula_mksggav0' },
-            2:  { net: 'formula36',  gp: 'formula_mksgwwcr' },
-            3:  { net: 'formula077', gp: 'formula_mksgcz2t' },
-            4:  { net: 'formula6',   gp: 'formula_mksgen1v' },
-            5:  { net: 'formula83',  gp: 'formula_mksgs24d' },
-            6:  { net: 'formula96',  gp: 'formula_mksgyb4y' },
-            7:  { net: 'formula89',  gp: 'formula_mksg2sqq' },
-            8:  { net: 'formula81',  gp: 'formula_mksg7nxw' },
-            9:  { net: 'formula95',  gp: 'formula_mksgm5vc' },
-            10: { net: 'formula76',  gp: 'formula_mksgz4q4' },
-            11: { net: 'formula30',  gp: 'formula_mksg50t7' },
-            12: { net: 'formula78',  gp: 'formula_mksgr3ew' },
+          // Monday.com GraphQL API does NOT return formula column values.
+          // We fetch the source columns and compute Net + GP ourselves.
+
+          // Month-to-gross-column-ID mapping
+          const MONTH_GROSS = {
+            1:  'numbers3',
+            2:  'numeric',
+            3:  'numeric7',
+            4:  'numeric8',
+            5:  'numeric1',
+            6:  'dup__of_may__gross_',
+            7:  'numeric6',
+            8:  'numeric85',
+            9:  'numeric87',
+            10: 'numeric67',
+            11: 'numeric2',
+            12: 'numeric5',
           };
 
+          // Shared columns needed for Net/GP formulas
+          const SHARED_COLS = [
+            'deal_stage',        // status: (90%), (100%), etc.
+            'delivery_method',   // status: Programmatic, Data Activation, etc.
+            'custom_net',        // status: True/False
+            'numbers4',          // number: NET Discount %
+            'color_mksg773',     // status: Trading Deal True/False
+            'numeric_mksge54p',  // number: Trading Deal %
+          ];
+
           const month = new Date().getMonth() + 1;
-          const { net: netCol, gp: gpCol } = MONTH_COLUMNS[month];
-          console.error(`Month: ${month}, Net col: ${netCol}, GP col: ${gpCol}`);
+          const grossCol = MONTH_GROSS[month];
+          const allCols = [...SHARED_COLS, grossCol];
+          console.error(`Month: ${month}, Gross col: ${grossCol}`);
 
           function mondayQuery(query) {
             return new Promise((resolve, reject) => {
@@ -68,11 +82,10 @@ jobs:
           }
 
           async function fetchAllItems() {
-            const colIds = `["deal_stage", "${netCol}", "${gpCol}"]`;
+            const colIds = JSON.stringify(allCols);
             const allItems = [];
             let cursor = null;
 
-            // First page - request both text and value (formula cols use value field)
             const firstQuery = `{ boards(ids: 1306145892) { items_page(limit: 500) { cursor items { name column_values(ids: ${colIds}) { id text value } } } } }`;
             const first = await mondayQuery(firstQuery);
             const firstPage = first.data.boards[0].items_page;
@@ -80,7 +93,6 @@ jobs:
             cursor = firstPage.cursor;
             console.error(`Page 1: ${firstPage.items.length} items`);
 
-            // Subsequent pages
             while (cursor) {
               const nextQuery = `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { name column_values(ids: ${colIds}) { id text value } } } }`;
               const next = await mondayQuery(nextQuery);
@@ -93,18 +105,22 @@ jobs:
             return allItems;
           }
 
-          // Extract numeric value from a column - tries text first, then parses value JSON
-          function getNumericValue(col) {
+          // Get text value from a column
+          function getText(item, colId) {
+            const col = item.column_values.find(c => c.id === colId);
+            return (col && col.text) || '';
+          }
+
+          // Get numeric value from a column
+          function getNum(item, colId) {
+            const col = item.column_values.find(c => c.id === colId);
             if (!col) return 0;
-            // Try text field first
-            if (col.text && col.text !== '' && col.text !== '0') {
+            if (col.text && col.text !== '') {
               return parseFloat(col.text.replace(/[^0-9.\-]/g, '')) || 0;
             }
-            // Fall back to value field (formula columns store result as JSON)
             if (col.value) {
               try {
                 const parsed = JSON.parse(col.value);
-                // Formula columns: {"value": 1234.56} or just a number
                 if (typeof parsed === 'number') return parsed;
                 if (parsed && typeof parsed.value === 'number') return parsed.value;
                 if (parsed && typeof parsed.value === 'string') return parseFloat(parsed.value) || 0;
@@ -115,32 +131,61 @@ jobs:
             return 0;
           }
 
+          // Compute Net Formula:
+          //   customNetFormula = IF(delivery_method == "Data Activation", "True", custom_net)
+          //   net = gross * IF(customNetFormula == "True", 1 - netDiscount, 0.85)
+          function computeNet(item) {
+            const gross = getNum(item, grossCol);
+            if (gross === 0) return 0;
+
+            const deliveryMethod = getText(item, 'delivery_method');
+            const customNet = getText(item, 'custom_net');
+            const netDiscount = getNum(item, 'numbers4');
+
+            // Custom Net Formula intermediate
+            const customNetFormula = (deliveryMethod === 'Data Activation') ? 'True' : customNet;
+            const discountFactor = (customNetFormula === 'True') ? (1 - netDiscount) : 0.85;
+
+            return gross * discountFactor;
+          }
+
+          // Compute GP Formula:
+          //   IF(delivery_method == "Data Activation", net, net * IF(tradingDeal == "True", 1 - tradingPct, 1) * 0.5)
+          function computeGP(item, net) {
+            const deliveryMethod = getText(item, 'delivery_method');
+            if (deliveryMethod === 'Data Activation') return net;
+
+            const tradingDeal = getText(item, 'color_mksg773');
+            const tradingPct = getNum(item, 'numeric_mksge54p');
+
+            const tradingFactor = (tradingDeal === 'True') ? (1 - tradingPct) : 1;
+            return net * tradingFactor * 0.5;
+          }
+
           async function main() {
             const items = await fetchAllItems();
             console.error(`Total items fetched: ${items.length}`);
 
-            // Log first matching item for debugging
             let logged = false;
-
             const stages = {};
+
             items.forEach(item => {
-              const dealStageCol = item.column_values.find(c => c.id === 'deal_stage') || {};
-              const dealStage = dealStageCol.text || '';
+              const dealStage = getText(item, 'deal_stage');
               if (!dealStage.includes('(90%)') && !dealStage.includes('(100%)')) return;
 
-              const netCol_ = item.column_values.find(c => c.id === netCol);
-              const gpCol_ = item.column_values.find(c => c.id === gpCol);
+              const net = computeNet(item);
+              const gp = computeGP(item, net);
 
               if (!logged) {
+                const gross = getNum(item, grossCol);
                 console.error('Sample matched item:', item.name);
-                console.error('  deal_stage:', JSON.stringify(dealStageCol));
-                console.error('  net col:', JSON.stringify(netCol_));
-                console.error('  gp col:', JSON.stringify(gpCol_));
+                console.error('  deal_stage:', dealStage);
+                console.error('  gross:', gross, '-> net:', net, '-> gp:', gp);
+                console.error('  delivery_method:', getText(item, 'delivery_method'));
+                console.error('  custom_net:', getText(item, 'custom_net'));
+                console.error('  net_discount:', getNum(item, 'numbers4'));
                 logged = true;
               }
-
-              const net = getNumericValue(netCol_);
-              const gp = getNumericValue(gpCol_);
 
               if (!stages[dealStage]) stages[dealStage] = { stage: dealStage, net: 0, gp: 0 };
               stages[dealStage].net += net;
@@ -153,7 +198,6 @@ jobs:
             };
 
             console.error('Result:', JSON.stringify(result, null, 2));
-            // stdout is captured as the output
             console.log(JSON.stringify(result));
           }
 
