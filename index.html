@@ -466,7 +466,7 @@
 
     function StatusDot({ value, threshold }) {
       const color = value >= threshold ? BRAND.darkAqua : value >= threshold * 0.7 ? "#F59E0B" : BRAND.blanketI;
-      return <div style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", marginRight: 4, backgroundColor: color }} />;
+      return <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", marginRight: 6, backgroundColor: color, verticalAlign: "middle" }} />;
     }
 
     ReactDOM.render(<App />, document.getElementById("root"));
