@@ -144,7 +144,7 @@ jobs:
 
             // Custom Net Formula intermediate
             const customNetFormula = (deliveryMethod === 'Data Activation') ? 'True' : customNet;
-            const discountFactor = (customNetFormula === 'True') ? (1 - netDiscount) : 0.85;
+            const discountFactor = (customNetFormula === 'True') ? (1 - netDiscount / 100) : 0.85;
 
             return gross * discountFactor;
           }
@@ -158,7 +158,7 @@ jobs:
             const tradingDeal = getText(item, 'color_mksg773');
             const tradingPct = getNum(item, 'numeric_mksge54p');
 
-            const tradingFactor = (tradingDeal === 'True') ? (1 - tradingPct) : 1;
+            const tradingFactor = (tradingDeal === 'True') ? (1 - tradingPct / 100) : 1;
             return net * tradingFactor * 0.5;
           }
 
