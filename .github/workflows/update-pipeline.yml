@@ -5,11 +5,14 @@ on:
     - cron: '0 9 * * 1-5'  # 9am UTC weekdays
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - name: Fetch Monday.com pipeline
         env:
