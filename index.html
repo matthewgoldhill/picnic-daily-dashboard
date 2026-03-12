@@ -45,6 +45,7 @@
       for (let v = 0; v <= maxVal * 1.1; v += niceStep) yTicks.push(v);
       if (yTicks.length < 2) yTicks.push(niceStep);
       const chartMax = yTicks[yTicks.length - 1] || maxVal * 1.1;
+      const barAreaHeight = height - 84; // legend(36) + x-labels(24) + padding(24)
 
       return React.createElement("div", { style: { width: "100%", height, position: "relative" } },
         // Legend
@@ -73,7 +74,7 @@
             // Bar groups
             data.map((d, i) => React.createElement("div", {
               key: i,
-              style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", position: "relative", minWidth: 0 },
+              style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", position: "relative", minWidth: 0, height: barAreaHeight },
               onMouseEnter: () => setHoveredBar(i),
               onMouseLeave: () => setHoveredBar(null)
             },
@@ -87,19 +88,19 @@
                   React.createElement("span", null, `${b.name || b.dataKey}: ${fmt(d[b.dataKey] || 0)}`)
                 ))
               ),
-              // Bars
-              React.createElement("div", { style: { display: "flex", gap: 2, width: "80%", justifyContent: "center", flex: 1, alignItems: "flex-end" } },
+              // Bars - using pixel heights instead of percentage
+              React.createElement("div", { style: { display: "flex", gap: 2, width: "80%", justifyContent: "center", alignItems: "flex-end" } },
                 bars.map(b => {
                   const val = d[b.dataKey] || 0;
-                  const pctH = Math.max((val / chartMax) * 100, 0.5);
+                  const barH = Math.max((val / chartMax) * barAreaHeight, val > 0 ? 2 : 0);
                   return React.createElement("div", {
                     key: b.dataKey,
-                    style: { flex: 1, maxWidth: 24, height: `${pctH}%`, background: b.fill, borderRadius: "4px 4px 0 0", transition: "height 0.3s", minHeight: val > 0 ? 2 : 0 }
+                    style: { flex: 1, maxWidth: 24, height: barH, background: b.fill, borderRadius: "4px 4px 0 0", transition: "height 0.3s" }
                   });
                 })
               ),
               // X label
-              React.createElement("div", { style: { position: "absolute", bottom: 0, fontSize: data.length > 15 ? 9 : 11, color: BRAND.nearBlack, transform: "translateY(100%)", paddingTop: 4, whiteSpace: "nowrap" } }, d.date)
+              React.createElement("div", { style: { position: "absolute", bottom: -20, fontSize: data.length > 15 ? 9 : 11, color: BRAND.nearBlack, whiteSpace: "nowrap" } }, d.date)
             ))
           )
         )
@@ -139,7 +140,7 @@
     }
 
     // ---- Pipeline data (baked in - refreshed daily by scheduled task) ----
-    // Source: Monday.com board 1306145892 - March 2026 pipeline (90%+ stages only)
+    // Source: Monday.com board 1306145892 - March 2026 pipeline (90%+100% stages only)
     // Last updated: 2026-03-10T09:00:00
     const PIPELINE_DATA = {
       lastUpdated: "2026-03-10",
@@ -245,6 +246,10 @@
       const msMarginTotal = dailyMS.reduce((s, d) => s + d.margin, 0);
       const msRevTotal = dailyMS.reduce((s, d) => s + d.rev, 0);
 
+      const msAvgDaily = dailyMS.length > 0 ? msRevTotal / dailyMS.length : 0;
+      const predictedMSRev = msAvgDaily * daysInMonth;
+      const predictedCombinedRev = predictedMSRev + dlMonthEstimate;
+
       const lastMSDay = dailyMS.length > 0 ? dailyMS[dailyMS.length - 1] : { date: "-", rev: 0, margin: 0 };
       const lastDate = dailyMS.length > 0 ? dailyMS[dailyMS.length - 1].date : "-";
 
@@ -317,8 +322,11 @@
                 {/* Monthly Delivery */}
                 <div style={cardStyle}>
                   <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Monthly Delivery</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
                     <KPI label="Delivered Revenue" value={fmt(delivered)} color={BRAND.blanketI} />
+                    <KPI label="Predicted Month Rev" value={fmt(predictedCombinedRev)}
+                      sub={`MS ${fmt(predictedMSRev)} + DL ${fmt(dlMonthEstimate)}`}
+                      color={BRAND.blanketII} />
                     <KPI label="% Time Through Month" value={pct(pctTime)} sub={`Day ${yesterday} of ${daysInMonth}`} />
                     <KPI label="% Delivered"
                       value={<span><StatusDot value={pctDelivered} threshold={pctTime} />{pct(pctDelivered)}</span>}

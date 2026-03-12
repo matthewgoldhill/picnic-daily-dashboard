@@ -1,0 +1,65 @@
+name: Update Pipeline Data
+
+on:
+  schedule:
+    - cron: '0 9 * * 1-5'  # 9am UTC weekdays
+  workflow_dispatch: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Monday.com pipeline
+        env:
+          MONDAY_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
+        run: |
+          RESPONSE=$(curl -s -X POST https://api.monday.com/v2 \
+            -H "Authorization: $MONDAY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"query":"{ boards(ids: 1306145892) { items_page(limit: 500) { items { name group { title } column_values { id text value } } } } }"}')
+
+          echo "$RESPONSE" > pipeline_raw.json
+
+          # Extract pipeline stages using node
+          node -e "
+          const data = require('./pipeline_raw.json');
+          const items = data.data.boards[0].items_page.items;
+          const stages = {};
+          items.forEach(item => {
+            const group = item.group.title;
+            if (!group.match(/\(100%\)|\(90%\)/)) return;
+            const net = item.column_values.find(c => c.id === 'numbers')?.text || '0';
+            const gp = item.column_values.find(c => c.id === 'numbers_1')?.text || '0';
+            if (!stages[group]) stages[group] = { stage: group, net: 0, gp: 0 };
+            stages[group].net += parseFloat(net.replace(/[^0-9.-]/g,'')) || 0;
+            stages[group].gp += parseFloat(gp.replace(/[^0-9.-]/g,'')) || 0;
+          });
+          const result = Object.values(stages);
+          const today = new Date().toISOString().split('T')[0];
+          console.log(JSON.stringify({ lastUpdated: today, stages: result }));
+          " > pipeline_data.json
+
+      - name: Update index.html
+        run: |
+          PIPELINE=$(cat pipeline_data.json)
+          # Use node to safely replace the PIPELINE_DATA constant
+          node -e "
+          const fs = require('fs');
+          const pipeline = JSON.parse(fs.readFileSync('pipeline_data.json','utf8'));
+          let html = fs.readFileSync('index.html','utf8');
+          const stagesStr = pipeline.stages.map(s =>
+            '        { stage: \"' + s.stage + '\", net: ' + s.net.toFixed(2) + ', gp: ' + s.gp.toFixed(2) + ' },'
+          ).join('\n');
+          const replacement = 'const PIPELINE_DATA = {\n      lastUpdated: \"' + pipeline.lastUpdated + '\",\n      stages: [\n' + stagesStr + '\n      ],\n    };';
+          html = html.replace(/const PIPELINE_DATA = \{[\s\S]*?\};/, replacement);
+          fs.writeFileSync('index.html', html);
+          "
+
+      - name: Commit and push
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git diff --cached --quiet || (git commit -m "chore: update pipeline data $(date +%Y-%m-%d)" && git push)
