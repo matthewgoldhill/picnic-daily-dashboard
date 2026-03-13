@@ -132,8 +132,9 @@
             )),
             // SVG line overlay
             line && React.createElement("svg", {
-              style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 24, pointerEvents: "none", overflow: "visible" },
-              preserveAspectRatio: "none"
+              viewBox: "0 0 100 100",
+              preserveAspectRatio: "none",
+              style: { position: "absolute", top: 0, left: 0, width: "100%", bottom: 24, pointerEvents: "none", overflow: "visible" }
             },
               (() => {
                 const n = data.length;
@@ -159,8 +160,9 @@
                     const y = 100 - ((d[line.dataKey] || 0) / lineMax) * 100;
                     return React.createElement("circle", {
                       key: `dot${i}`,
-                      cx: `${x}%`, cy: `${y}%`, r: hoveredBar === i ? 5 : 3.5,
-                      fill: line.color, stroke: "white", strokeWidth: 1.5
+                      cx: x, cy: y, r: hoveredBar === i ? 5 : 3.5,
+                      fill: line.color, stroke: "white", strokeWidth: 1.5,
+                      vectorEffect: "non-scaling-stroke"
                     });
                   })
                 ];
