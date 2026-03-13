@@ -130,7 +130,7 @@
               // X label
               React.createElement("div", { style: { position: "absolute", bottom: -20, fontSize: data.length > 15 ? 9 : 11, color: BRAND.nearBlack, whiteSpace: "nowrap" } }, d.date)
             )),
-            // SVG line overlay
+            // SVG line overlay (polyline only - dots rendered as HTML for pixel accuracy)
             line && React.createElement("svg", {
               viewBox: "0 0 100 100",
               preserveAspectRatio: "none",
@@ -144,30 +144,35 @@
                   const y = 100 - ((d[line.dataKey] || 0) / lineMax) * 100;
                   return `${x},${y}`;
                 });
-                return [
-                  React.createElement("polyline", {
-                    key: "line",
-                    points: points.join(" "),
-                    fill: "none",
-                    stroke: line.color,
-                    strokeWidth: 2.5,
-                    strokeLinejoin: "round",
-                    strokeLinecap: "round",
-                    vectorEffect: "non-scaling-stroke"
-                  }),
-                  ...data.map((d, i) => {
-                    const x = ((i + 0.5) / n) * 100;
-                    const y = 100 - ((d[line.dataKey] || 0) / lineMax) * 100;
-                    return React.createElement("circle", {
-                      key: `dot${i}`,
-                      cx: x, cy: y, r: hoveredBar === i ? 5 : 3.5,
-                      fill: line.color, stroke: "white", strokeWidth: 1.5,
-                      vectorEffect: "non-scaling-stroke"
-                    });
-                  })
-                ];
+                return React.createElement("polyline", {
+                  key: "line",
+                  points: points.join(" "),
+                  fill: "none",
+                  stroke: line.color,
+                  strokeWidth: 2,
+                  strokeLinejoin: "round",
+                  strokeLinecap: "round",
+                  vectorEffect: "non-scaling-stroke"
+                });
               })()
-            )
+            ),
+            // Line dots (HTML divs for pixel-perfect sizing)
+            line && data.map((d, i) => {
+              const n = data.length;
+              const xPct = ((i + 0.5) / n) * 100;
+              const barAreaPx = barsAreaRef.current ? barsAreaRef.current.clientHeight - 24 : barAreaHeight;
+              const yPx = ((d[line.dataKey] || 0) / lineMax) * barAreaPx;
+              const size = hoveredBar === i ? 7 : 4;
+              return React.createElement("div", {
+                key: `linedot${i}`,
+                style: {
+                  position: "absolute", left: `${xPct}%`, bottom: 24 + yPx,
+                  width: size, height: size, borderRadius: "50%",
+                  background: line.color, border: "1px solid white",
+                  transform: "translate(-50%, 50%)", pointerEvents: "none", zIndex: 2
+                }
+              });
+            })
           ),
           // Y axis (right) - secondary
           line && React.createElement("div", { style: { width: 40, position: "relative", flexShrink: 0 } },
