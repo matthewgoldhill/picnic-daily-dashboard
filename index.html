@@ -41,8 +41,9 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
     // Pure CSS bar chart component - no external dependency
-    function SimpleBarChart({ data, bars, height = 300 }) {
+    function SimpleBarChart({ data, bars, height = 300, line }) {
       const [hoveredBar, setHoveredBar] = useState(null);
+      const barsAreaRef = React.useRef(null);
       if (!data || data.length === 0) return null;
       const allValues = data.flatMap(d => bars.map(b => d[b.dataKey] || 0));
       const maxVal = Math.max(...allValues, 1);
@@ -54,17 +55,33 @@
       const chartMax = yTicks[yTicks.length - 1] || maxVal * 1.1;
       const barAreaHeight = height - 84; // legend(36) + x-labels(24) + padding(24)
 
+      // Secondary axis (line) calculations
+      let lineMax = 0, lineTicks = [];
+      if (line) {
+        const lineVals = data.map(d => d[line.dataKey] || 0);
+        const rawMax = Math.max(...lineVals, 1);
+        // Nice round max for percentage axis
+        lineMax = Math.ceil(rawMax / 10) * 10;
+        if (lineMax < 10) lineMax = 10;
+        const lineStep = lineMax <= 20 ? 5 : 10;
+        for (let v = 0; v <= lineMax; v += lineStep) lineTicks.push(v);
+      }
+
       return React.createElement("div", { style: { width: "100%", height, position: "relative" } },
         // Legend
         React.createElement("div", { style: { display: "flex", gap: 16, justifyContent: "center", marginBottom: 12, fontSize: 12 } },
           bars.map(b => React.createElement("div", { key: b.dataKey, style: { display: "flex", alignItems: "center", gap: 6 } },
             React.createElement("div", { style: { width: 12, height: 12, borderRadius: 2, background: b.fill } }),
             React.createElement("span", { style: { color: BRAND.nearBlack } }, b.name || b.dataKey)
-          ))
+          )),
+          line && React.createElement("div", { key: line.dataKey, style: { display: "flex", alignItems: "center", gap: 6 } },
+            React.createElement("div", { style: { width: 16, height: 3, borderRadius: 1, background: line.color } }),
+            React.createElement("span", { style: { color: BRAND.nearBlack } }, line.label || line.dataKey)
+          )
         ),
         // Chart area
         React.createElement("div", { style: { display: "flex", height: height - 60, position: "relative" } },
-          // Y axis
+          // Y axis (left)
           React.createElement("div", { style: { width: 50, position: "relative", flexShrink: 0 } },
             yTicks.map((v, i) => React.createElement("div", {
               key: i,
@@ -72,7 +89,7 @@
             }, `\u00A3${(v / 1000).toFixed(0)}k`))
           ),
           // Bars area
-          React.createElement("div", { style: { flex: 1, display: "flex", alignItems: "flex-end", gap: 1, borderLeft: "1px solid #E8E4E5", borderBottom: "1px solid #E8E4E5", position: "relative", paddingBottom: 24 } },
+          React.createElement("div", { ref: barsAreaRef, style: { flex: 1, display: "flex", alignItems: "flex-end", gap: 1, borderLeft: "1px solid #E8E4E5", borderBottom: "1px solid #E8E4E5", position: "relative", paddingBottom: 24 } },
             // Grid lines
             yTicks.map((v, i) => React.createElement("div", {
               key: `g${i}`,
@@ -93,7 +110,11 @@
                 bars.map(b => React.createElement("div", { key: b.dataKey, style: { display: "flex", alignItems: "center", gap: 6, marginTop: 2 } },
                   React.createElement("div", { style: { width: 8, height: 8, borderRadius: 2, background: b.fill } }),
                   React.createElement("span", null, `${b.name || b.dataKey}: ${fmt(d[b.dataKey] || 0)}`)
-                ))
+                )),
+                line && React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 2 } },
+                  React.createElement("div", { style: { width: 8, height: 3, borderRadius: 1, background: line.color } }),
+                  React.createElement("span", null, `${line.label || line.dataKey}: ${(d[line.dataKey] || 0).toFixed(1)}%`)
+                )
               ),
               // Bars - using pixel heights instead of percentage
               React.createElement("div", { style: { display: "flex", gap: 2, width: "80%", justifyContent: "center", alignItems: "flex-end" } },
@@ -108,7 +129,50 @@
               ),
               // X label
               React.createElement("div", { style: { position: "absolute", bottom: -20, fontSize: data.length > 15 ? 9 : 11, color: BRAND.nearBlack, whiteSpace: "nowrap" } }, d.date)
-            ))
+            )),
+            // SVG line overlay
+            line && React.createElement("svg", {
+              style: { position: "absolute", top: 0, left: 0, right: 0, bottom: 24, pointerEvents: "none", overflow: "visible" },
+              preserveAspectRatio: "none"
+            },
+              (() => {
+                const n = data.length;
+                if (n === 0) return null;
+                const points = data.map((d, i) => {
+                  const x = ((i + 0.5) / n) * 100;
+                  const y = 100 - ((d[line.dataKey] || 0) / lineMax) * 100;
+                  return `${x},${y}`;
+                });
+                return [
+                  React.createElement("polyline", {
+                    key: "line",
+                    points: points.join(" "),
+                    fill: "none",
+                    stroke: line.color,
+                    strokeWidth: 2.5,
+                    strokeLinejoin: "round",
+                    strokeLinecap: "round",
+                    vectorEffect: "non-scaling-stroke"
+                  }),
+                  ...data.map((d, i) => {
+                    const x = ((i + 0.5) / n) * 100;
+                    const y = 100 - ((d[line.dataKey] || 0) / lineMax) * 100;
+                    return React.createElement("circle", {
+                      key: `dot${i}`,
+                      cx: `${x}%`, cy: `${y}%`, r: hoveredBar === i ? 5 : 3.5,
+                      fill: line.color, stroke: "white", strokeWidth: 1.5
+                    });
+                  })
+                ];
+              })()
+            )
+          ),
+          // Y axis (right) - secondary
+          line && React.createElement("div", { style: { width: 40, position: "relative", flexShrink: 0 } },
+            lineTicks.map((v, i) => React.createElement("div", {
+              key: i,
+              style: { position: "absolute", bottom: `${(v / lineMax) * 100}%`, left: 4, fontSize: 11, color: line.color, transform: "translateY(50%)", fontWeight: 600 }
+            }, `${v}%`))
           )
         )
       );
@@ -320,6 +384,7 @@
         "Media Solutions": d.rev,
         "MS Margin": d.margin,
         "Data Licensing": dailyDL[i]?.gp || 0,
+        "Margin %": d.rev > 0 ? (d.margin / d.rev) * 100 : 0,
       }));
 
       const cardStyle = {
@@ -451,7 +516,7 @@
                   <SimpleBarChart data={combinedDaily} height={300} bars={[
                     { dataKey: "MS Margin", fill: BRAND.blanketII },
                     { dataKey: "Data Licensing", fill: BRAND.darkAqua, name: "DL GP" }
-                  ]} />
+                  ]} line={{ dataKey: "Margin %", color: BRAND.blanketI, label: "MS Margin %" }} />
                 </div>
               </Section>
 
