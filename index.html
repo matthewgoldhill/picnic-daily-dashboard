@@ -238,7 +238,7 @@
     // Source: Monday.com board 1306145892 - March 2026 pipeline (90%+100% stages only)
     // Last updated: 2026-03-10T09:00:00
     const PIPELINE_DATA = {
-      lastUpdated: "2026-03-13",
+      lastUpdated: "2026-03-13 09:00:00 UTC",
       stages: [
         { stage: "(90%) Pending IO or Prog Go Live", net: 24469.26, gp: 10636.16 },
         { stage: "(100%) - Signed IO or Prog Campaign Live", net: 222267.09, gp: 105924.79 },
@@ -432,7 +432,7 @@
                 </h1>
                 <p style={{ fontSize: 13, color: BRAND.stormy, marginTop: 4 }}>
                   {monthNames[month]} {year} - as of {lastDate}/{year} &nbsp;
-                  <span style={{ fontSize: 11, color: BRAND.stormy }}>Pipeline updated: {PIPELINE_DATA.lastUpdated}</span>
+                  <span style={{ fontSize: 11, color: BRAND.stormy }}>Pipeline updated: {PIPELINE_DATA.lastUpdated.replace(/ UTC$/, "")} UTC</span>
                 </p>
               </div>
               <div style={{ display: "flex", gap: 4, backgroundColor: BRAND.white, borderRadius: 8, padding: 4, border: "1px solid #eee" }}>
@@ -480,7 +480,7 @@
                       color={BRAND.blanketII} />
                     <KPI label="% Time Through Month" value={pct(pctTime)} sub={`Day ${yesterday} of ${daysInMonth}`} />
                     <KPI label="% Delivered"
-                      value={<span><StatusDot value={pctDelivered} threshold={pctTime} />{pct(pctDelivered)}</span>}
+                      value={pct(pctDelivered)}
                       sub={pctDelivered > pctTime ? "Ahead of pace" : "Behind pace"}
                       color={pctDelivered > pctTime ? BRAND.darkAqua : BRAND.blanketI} />
                   </div>
@@ -589,6 +589,22 @@
               MS & DL: live from Google Sheets | Pipeline: Monday.com (updated {PIPELINE_DATA.lastUpdated}) | FX: {FX_RATE} USD/GBP
               <br />
               Signed in as {user.email} · <a href="#" onClick={(e) => { e.preventDefault(); handleSignOut(); }} style={{ color: BRAND.stormy }}>Sign out</a>
+              <br />
+              <button onClick={() => {
+                if (!confirm("Trigger pipeline data refresh from Monday.com?")) return;
+                fetch("/api/trigger-update", { method: "POST" })
+                  .then(r => r.json())
+                  .then(d => {
+                    if (d.ok) alert("Pipeline update triggered! Page will refresh with new data in a few minutes.");
+                    else alert("Failed: " + (d.error || "Unknown error"));
+                  })
+                  .catch(() => alert("Failed to trigger update"));
+              }} style={{
+                marginTop: 8, padding: "4px 12px", fontSize: 10, fontWeight: 600,
+                border: `1px solid ${BRAND.stormy}`, borderRadius: 4,
+                background: "transparent", color: BRAND.stormy, cursor: "pointer",
+                textTransform: "uppercase", letterSpacing: "0.05em",
+              }}>Update Pipeline Data</button>
             </div>
           </div>
         </div>

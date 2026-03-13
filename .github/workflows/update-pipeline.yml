@@ -200,7 +200,7 @@ jobs:
             });
 
             const result = {
-              lastUpdated: new Date().toISOString().split('T')[0],
+              lastUpdated: new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'),
               stages: Object.values(stages),
             };
 
