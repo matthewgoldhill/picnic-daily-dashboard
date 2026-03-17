@@ -498,10 +498,13 @@
               {/* Data Licensing */}
               <Section title="Data Licensing (OpenX) - GBP" color={BRAND.darkAqua}>
                 <div style={accentCardStyle(BRAND.lightAqua)}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24 }}>
                     <KPI label="Yesterday's DL GP" value={fmt(dlYesterday)} sub={lastDate} color={BRAND.darkAqua} />
                     <KPI label={`${monthNames[month]} DL Total`} value={fmt(dlTotal)} sub={`${dailyDL.length} days`} color={BRAND.darkAqua} />
                     <KPI label="Avg Daily DL GP" value={fmt(dlAvg)} sub="Gross profit" />
+                    <KPI label="Predicted Monthly Rev" value={fmt(dlMonthEstimate)}
+                      sub={`Based on ${dailyDL.length}-day avg: ${fmt(dlAvg)}/day`}
+                      color={BRAND.darkAqua} />
                   </div>
                 </div>
               </Section>
