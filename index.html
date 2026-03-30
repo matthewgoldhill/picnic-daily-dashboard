@@ -33,6 +33,66 @@
     }
     .login-logo { font-size: 28px; font-weight: 900; color: #303030; text-transform: uppercase; letter-spacing: 0.02em; }
     .login-sub { font-size: 14px; color: #ACABAC; }
+
+    /* Scrollbar styling for horizontal scroll areas */
+    .kpi-grid::-webkit-scrollbar, .table-wrapper::-webkit-scrollbar, .chart-card::-webkit-scrollbar {
+      height: 4px;
+    }
+    .kpi-grid::-webkit-scrollbar-thumb, .table-wrapper::-webkit-scrollbar-thumb, .chart-card::-webkit-scrollbar-thumb {
+      background: #D5D2D3; border-radius: 4px;
+    }
+    .kpi-grid::-webkit-scrollbar-track, .table-wrapper::-webkit-scrollbar-track, .chart-card::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    /* Responsive: mobile ≤ 768px */
+    @media (max-width: 768px) {
+      /* Layout */
+      .dash-container { padding: 16px !important; }
+      .dash-header { flex-direction: column !important; align-items: flex-start !important; gap: 12px; }
+      .dash-header h1 { font-size: 20px !important; }
+      .dash-header p { font-size: 12px !important; }
+
+      /* Tab buttons - larger touch targets */
+      .tab-bar { align-self: stretch; }
+      .tab-bar button { padding: 10px 16px !important; font-size: 13px !important; min-height: 44px; }
+
+      /* KPI grids - horizontal scroll */
+      .kpi-grid {
+        display: flex !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        scroll-snap-type: x mandatory;
+        gap: 16px !important;
+        padding-bottom: 8px;
+      }
+      .kpi-grid > div {
+        min-width: 160px;
+        flex-shrink: 0;
+        scroll-snap-align: start;
+      }
+
+      /* KPI values - smaller on mobile */
+      .kpi-value { font-size: 18px !important; }
+      .kpi-label { font-size: 10px !important; }
+
+      /* Table - ensure horizontal scroll */
+      .table-wrapper { -webkit-overflow-scrolling: touch; }
+      .table-wrapper table { min-width: 540px; }
+
+      /* Progress bar text */
+      .progress-text { font-size: 9px !important; }
+
+      /* Footer */
+      .dash-footer { font-size: 10px !important; }
+      .dash-footer button { min-height: 44px; padding: 8px 16px !important; font-size: 11px !important; }
+
+      /* Charts - taller on mobile for readability */
+      .chart-card { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+      /* Section headers */
+      .section-title { font-size: 11px !important; }
+    }
   </style>
 </head>
 <body>
@@ -418,14 +478,14 @@
       const accentCardStyle = (bg) => ({ ...cardStyle, backgroundColor: bg, border: "none" });
 
       return (
-        <div style={{ backgroundColor: BRAND.lightMist, minHeight: "100vh", padding: 24, fontFamily: "Inter, system-ui, sans-serif" }}>
+        <div className="dash-container" style={{ backgroundColor: BRAND.lightMist, minHeight: "100vh", padding: 24, fontFamily: "Inter, system-ui, sans-serif" }}>
           <div style={{ maxWidth: 900, margin: "0 auto" }}>
 
             {/* Errors */}
             {errors.map((e, i) => <div key={i} className="error-banner">⚠ {e}</div>)}
 
             {/* Header */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+            <div className="dash-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
               <div>
                 <h1 style={{ fontSize: 24, fontWeight: 900, color: BRAND.nearBlack, textTransform: "uppercase", letterSpacing: "0.02em" }}>
                   Daily Spend & Margin
@@ -435,7 +495,7 @@
                   <span style={{ fontSize: 11, color: BRAND.stormy }}>Pipeline updated: {PIPELINE_DATA.lastUpdated}</span>
                 </p>
               </div>
-              <div style={{ display: "flex", gap: 4, backgroundColor: BRAND.white, borderRadius: 8, padding: 4, border: "1px solid #eee" }}>
+              <div className="tab-bar" style={{ display: "flex", gap: 4, backgroundColor: BRAND.white, borderRadius: 8, padding: 4, border: "1px solid #eee" }}>
                 {["overview", "charts"].map((t) => (
                   <button key={t} onClick={() => setTab(t)} style={{
                     padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, border: "none",
@@ -451,7 +511,7 @@
               {/* Media Solutions */}
               <Section title="Media Solutions" color={BRAND.blanketI}>
                 <div style={cardStyle}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                  <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
                     <KPI label="Yesterday's Revenue" value={fmt(lastMSDay.rev)} sub={lastDate} color={BRAND.blanketI} />
                     <KPI label="Yesterday's Margin" value={fmt(lastMSDay.margin)} sub={`${((lastMSDay.margin / lastMSDay.rev) * 100).toFixed(1)}% margin`} color={BRAND.darkAqua} />
                     <KPI label="Margin %" value={`${msRevTotal > 0 ? ((msMarginTotal / msRevTotal) * 100).toFixed(1) : 0}%`} sub="Month avg" />
@@ -461,7 +521,7 @@
                 {/* Pipeline Pacing */}
                 <div style={accentCardStyle("#FFF0F2")}>
                   <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Pipeline Pacing</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                  <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
                     <KPI label={`${monthNames[month]} Pipeline`} value={fmt(pipeline)} sub="Net formula (90%+100%)" />
                     <KPI label="Target Daily Spend" value={fmt(targetDaily)} sub={`${fmt(pipeline)} / ${daysInMonth} days`} />
                     <KPI label="Calc. Target (Remaining)" value={fmt(calcTarget)}
@@ -473,7 +533,7 @@
                 {/* Monthly Delivery */}
                 <div style={cardStyle}>
                   <h3 style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: BRAND.nearBlack, marginBottom: 12, letterSpacing: "0.08em" }}>Monthly Delivery</h3>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
+                  <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24, marginBottom: 16 }}>
                     <KPI label="Delivered Revenue" value={fmt(delivered)} color={BRAND.blanketI} />
                     <KPI label="Predicted Month Rev" value={fmt(predictedMSRev)}
                       sub={`Based on ${dailyMS.length}-day avg: ${fmt(msAvgDaily)}/day`}
@@ -488,7 +548,7 @@
                   <div style={{ position: "relative", height: 24, backgroundColor: "#F0E8EA", borderRadius: 12, overflow: "hidden" }}>
                     <div style={{ position: "absolute", height: "100%", borderRadius: 12, background: `linear-gradient(90deg, ${BRAND.blanketI}, ${BRAND.blanketII})`, width: pct(pctDelivered), transition: "width 0.5s" }} />
                     <div style={{ position: "absolute", height: "100%", borderRight: `2px dashed ${BRAND.nearBlack}`, left: pct(pctTime) }} />
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: BRAND.white, mixBlendMode: "difference" }}>
+                    <div className="progress-text" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: BRAND.white, mixBlendMode: "difference" }}>
                       {pct(pctDelivered)} delivered vs {pct(pctTime)} time elapsed
                     </div>
                   </div>
@@ -498,7 +558,7 @@
               {/* Data Licensing */}
               <Section title="Data Licensing (OpenX) - GBP" color={BRAND.darkAqua}>
                 <div style={accentCardStyle(BRAND.lightAqua)}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24 }}>
+                  <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 24 }}>
                     <KPI label="Yesterday's DL GP" value={fmt(dlYesterday)} sub={lastDate} color={BRAND.darkAqua} />
                     <KPI label={`${monthNames[month]} DL Total`} value={fmt(dlTotal)} sub={`${dailyDL.length} days`} color={BRAND.darkAqua} />
                     <KPI label="Avg Daily DL GP" value={fmt(dlAvg)} sub="Gross profit" />
@@ -512,7 +572,7 @@
               {/* Combined */}
               <Section title="Combined Revenue" color={BRAND.blanketII}>
                 <div style={cardStyle}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+                  <div className="kpi-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
                     <KPI label={`${monthNames[month]} Est. Combined Margin`}
                       value={fmt(pipelineGP + dlMonthEstimate)}
                       sub={`Pipeline GP ${fmt(pipelineGP)} + DL est. ${fmt(dlMonthEstimate)}`}
@@ -529,7 +589,7 @@
             {tab === "charts" && (<>
               {/* Daily Revenue Chart */}
               <Section title={`Daily Revenue - ${monthNames[month]} ${year}`} color={BRAND.blanketI}>
-                <div style={cardStyle}>
+                <div className="chart-card" style={cardStyle}>
                   <SimpleBarChart data={combinedDaily} height={300} bars={[
                     { dataKey: "Media Solutions", fill: BRAND.blanketI },
                     { dataKey: "Data Licensing", fill: BRAND.darkAqua }
@@ -539,7 +599,7 @@
 
               {/* Margin Chart */}
               <Section title={`Daily Margin - ${monthNames[month]} ${year}`} color={BRAND.darkAqua}>
-                <div style={cardStyle}>
+                <div className="chart-card" style={cardStyle}>
                   <SimpleBarChart data={combinedDaily} height={300} bars={[
                     { dataKey: "MS Margin", fill: BRAND.blanketII },
                     { dataKey: "Data Licensing", fill: BRAND.darkAqua, name: "DL GP" }
@@ -549,7 +609,7 @@
 
               {/* Daily breakdown table */}
               <Section title="Daily Breakdown" color={BRAND.stormy}>
-                <div style={{ ...cardStyle, overflowX: "auto", padding: 16 }}>
+                <div className="table-wrapper" style={{ ...cardStyle, overflowX: "auto", padding: 16 }}>
                   <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ textAlign: "left", fontSize: 11, textTransform: "uppercase", color: BRAND.stormy, letterSpacing: "0.05em" }}>
@@ -588,7 +648,7 @@
               </Section>
             </>)}
 
-            <div style={{ fontSize: 11, color: BRAND.stormy, textAlign: "center", marginTop: 24 }}>
+            <div className="dash-footer" style={{ fontSize: 11, color: BRAND.stormy, textAlign: "center", marginTop: 24 }}>
               MS & DL: live from Google Sheets | Pipeline: Monday.com (updated {PIPELINE_DATA.lastUpdated}) | FX: {FX_RATE} USD/GBP
               <br />
               Signed in as {user.email} · <a href="#" onClick={(e) => { e.preventDefault(); handleSignOut(); }} style={{ color: BRAND.stormy }}>Sign out</a>
@@ -617,9 +677,9 @@
     function KPI({ label, value, sub, color = BRAND.nearBlack }) {
       return (
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <span style={{ fontSize: 11, color: BRAND.stormy, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{label}</span>
-          <span style={{ fontSize: 22, fontWeight: 800, color }}>{value}</span>
-          {sub && <span style={{ fontSize: 11, color: BRAND.stormy }}>{sub}</span>}
+          <span className="kpi-label" style={{ fontSize: 11, color: BRAND.stormy, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>{label}</span>
+          <span className="kpi-value" style={{ fontSize: 22, fontWeight: 800, color }}>{value}</span>
+          {sub && <span className="kpi-label" style={{ fontSize: 11, color: BRAND.stormy }}>{sub}</span>}
         </div>
       );
     }
@@ -629,7 +689,7 @@
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <div style={{ width: 10, height: 10, transform: "rotate(45deg)", backgroundColor: color }} />
-            <h2 style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: BRAND.nearBlack }}>{title}</h2>
+            <h2 className="section-title" style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: BRAND.nearBlack }}>{title}</h2>
           </div>
           {children}
         </div>
