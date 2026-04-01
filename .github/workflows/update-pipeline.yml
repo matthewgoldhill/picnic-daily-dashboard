@@ -52,8 +52,14 @@ jobs:
           ];
 
           const now = new Date();
-          const month = now.getMonth() + 1;
-          const year = now.getFullYear().toString();
+          // On the 1st of the month, still report previous month (last day not yet shown)
+          let month = now.getMonth() + 1;
+          let year = now.getFullYear();
+          if (now.getDate() === 1) {
+            month--;
+            if (month === 0) { month = 12; year--; }
+          }
+          year = year.toString();
           const grossCol = MONTH_GROSS[month];
           const allCols = [...SHARED_COLS, grossCol];
           console.error(`Month: ${month}, Year: ${year}, Gross col: ${grossCol}`);

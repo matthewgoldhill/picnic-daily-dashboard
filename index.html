@@ -362,10 +362,13 @@
       const [dailyDL, setDailyDL] = useState([]);
 
       const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth(); // 0-indexed
+      // On the 1st of the month, still report previous month (last day not yet shown)
+      const isFirstOfMonth = now.getDate() === 1;
+      const reportRef = isFirstOfMonth ? new Date(now.getFullYear(), now.getMonth() - 1, 1) : now;
+      const year = reportRef.getFullYear();
+      const month = reportRef.getMonth(); // 0-indexed
       const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const today = now.getDate();
+      const today = isFirstOfMonth ? daysInMonth + 1 : now.getDate();
       const yesterday = today - 1;
       const monthStart = `${year}-${String(month + 1).padStart(2, "0")}-01`;
       const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
